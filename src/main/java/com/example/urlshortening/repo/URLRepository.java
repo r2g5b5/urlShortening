@@ -1,21 +1,9 @@
 package com.example.urlshortening.repo;
 
 import com.example.urlshortening.entities.URL;
-import org.springframework.data.repository.CrudRepository;
-import org.springframework.data.repository.ListCrudRepository;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
+import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.Optional;
-//import org.springframework.data.jpa.repository.JpaRepository;
-//import org.springframework.transaction.annotation.Transactional;
 
-
-@Transactional
-public interface URLRepository extends CrudRepository<URL,Integer> {
-    URL findURLById(Integer id);
-    List<URL> findAll();
-    URL findURLByUrl(String url);
-    Optional<URL> findURLByShortUrl(String shortUrl);
-    //List<Product> findTop10ByNameContainsOrderByPrice(String regex);
+public interface URLRepository extends JpaRepository<URL, Integer> {
+    Optional<URL> findByShortUrl(String shortUrl);
 }

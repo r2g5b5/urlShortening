@@ -1,85 +1,74 @@
 package com.example.urlshortening.service;
 
 import com.example.urlshortening.entities.URL;
-import com.example.urlshortening.repo.URLCacheRepository;
 import com.example.urlshortening.repo.URLRepository;
 import jakarta.transaction.Transactional;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.CachePut;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 @Service
 @Transactional
 public class URLShorteningService {
 
-    private final URLRepository dao;
+    private static final Logger logger = LoggerFactory.getLogger(URLShorteningService.class);
 
-    private final URLCacheRepository cache;
+    private final URLRepository urlRepository;
+    private final RedisTemplate<String, String> redisTemplate;
+    private static final String CACHE_PREFIX = "shortUrl:";
+    private static final long CACHE_EXPIRATION = 1L; // 1 hour
 
-    public void initializeDatabase() {
-        if (dao.count() == 0) {
-            dao.saveAll(Arrays.asList(
-                    new URL(1, "https://www.google.com", LocalDateTime.now()
-                            ,"XXYYYZ"),
-                    new URL(2, "https://www.reddit.com", LocalDateTime.now(),"AAAB55"),
-                    new URL(5, "https://www.yahoo.com", LocalDateTime.now(),"WWWDFD")
-            ));
-        }
-    }
-    @Autowired
-    public URLShorteningService(URLRepository dao, URLCacheRepository cache) {
-        this.dao = dao;
-        this.cache = cache;
+    public URLShorteningService(URLRepository urlRepository, RedisTemplate<String, String> redisTemplate) {
+        this.urlRepository = urlRepository;
+        this.redisTemplate = redisTemplate;
     }
 
-    public List<URL> getAllUrls(){
-        return dao.findAll();
-    }
 
+    @Cacheable(value = "urlCache", key = "#shortUrl", unless = "#result == null")
     public Optional<URL> findByShortUrl(String shortUrl) {
-        Optional<URL> url = cache.findById(shortUrl);
-        if ( url.isPresent() ) {
-            return url;
-        }
-
-        return dao.findURLByShortUrl(shortUrl);
+        logger.debug("Checking cache for short URL: {}", shortUrl);
+        return urlRepository.findByShortUrl(shortUrl);
     }
 
-
-    public Optional<URL> findById(int id) {
-        return dao.findById(id);
-    }
-
+    @CachePut(value = "urlCache", key = "#result.shortUrl")
+    @Transactional
     public URL saveURL(URL url) {
-        return dao.save(url);
+        url.setUrl(url.getUrl().replaceAll("^(https?://)", ""));
+        if (url.getShortUrl() == null) {
+            url.setShortUrl(generateUniqueShortCode());
+        }
+
+        URL savedUrl = urlRepository.save(url);
+        logger.info("Saved URL with short URL: {}", savedUrl.getShortUrl());
+
+        redisTemplate.opsForValue().set(CACHE_PREFIX + savedUrl.getShortUrl(), savedUrl.getUrl(), CACHE_EXPIRATION, TimeUnit.HOURS);
+        return savedUrl;
     }
 
-    public URL generateShortURLAndSave(URL url){
-        if (url.getUrl() != null && ! url.getUrl().startsWith("http")){
-            url.getUrl().replaceFirst("https://","");
-            url.getUrl().replaceFirst("http://","");
-        }
-        if (url.getShortUrl() == null){
-            url.setShortUrl(randomCode());
-        }
-        if (url.getCreatedDate() == null){
-            url.setCreatedDate(LocalDateTime.now());
-        }
-        return dao.save(url);
+
+    private String generateUniqueShortCode() {
+        String shortUrl;
+        int attempts = 0;
+        do {
+            shortUrl = generateShortCode();
+            attempts++;
+            if (attempts > 5) {
+                logger.error("Failed to generate a unique short URL after multiple attempts.");
+                throw new IllegalStateException("Failed to generate unique short URL.");
+            }
+        } while (urlRepository.findByShortUrl(shortUrl).isPresent());
+        return shortUrl;
     }
 
-    String randomCode() {
-        UUID uuid = UUID.randomUUID();
-        long lo = uuid.getLeastSignificantBits();
-        long hi = uuid.getMostSignificantBits();
-        lo = (lo >> (64 - 31)) ^ lo;
-        hi = (hi >> (64 - 31)) ^ hi;
-        String s = String.format("%010d", Math.abs(hi) + Math.abs(lo));
-        return s.substring(s.length() - 10);
+
+    private String generateShortCode() {
+        return UUID.randomUUID().toString().replaceAll("-", "").substring(0, 5);
     }
 }

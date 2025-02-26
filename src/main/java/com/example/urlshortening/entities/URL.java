@@ -1,34 +1,30 @@
 package com.example.urlshortening.entities;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.persistence.*;
-import jakarta.validation.constraints.NotBlank;
 import lombok.*;
+import org.springframework.stereotype.Indexed;
 
 import java.time.LocalDateTime;
 
 @Entity
 @Getter
 @Setter
-@AllArgsConstructor
 @NoArgsConstructor
-@ToString
-@Table(name = "URL")
-public class URL{
-
-    public URL(String url){
-        this.setUrl(url);
-    }
-    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+@AllArgsConstructor
+@Table(name = "urls")
+@Indexed
+public class URL {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private int id;
-
-    @NotBlank
     private String url;
-
-    @JsonFormat(pattern = ("yyyy/MM/dd HH:mm:ss"))
-    private LocalDateTime createdDate;
-
-    @NotBlank
+    private LocalDateTime createdDate = LocalDateTime.now();
+    @Column(unique = true)
     private String shortUrl;
 
+    public URL(String url, LocalDateTime createdDate, String shortUrl) {
+        this.url = url;
+        this.createdDate = createdDate;
+        this.shortUrl = shortUrl;
+    }
 }

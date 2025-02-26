@@ -1,61 +1,64 @@
 package com.example.urlshortening.conotroller;
 
+import com.example.urlshortening.dto.URLRequestDto;
+import com.example.urlshortening.dto.URLResponseDto;
 import com.example.urlshortening.entities.URL;
+import com.example.urlshortening.entities.URLNotFoundException;
+import com.example.urlshortening.mapper.URLMapper;
 import com.example.urlshortening.service.URLShorteningService;
+import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.net.URI;
-import java.time.LocalDateTime;
-import java.util.List;
+import java.util.Optional;
 
 @RestController
-@RequestMapping(path="/url",
-        //consumes = MediaType.APPLICATION_JSON_VALUE,
-        produces = MediaType.APPLICATION_JSON_VALUE,
-        method = {RequestMethod.GET, RequestMethod.POST})
+@RequestMapping("/urls")
 public class URLShorteningController {
+    private static final Logger logger = LoggerFactory.getLogger(URLShorteningController.class);
 
-    private final Logger log = LoggerFactory.getLogger(URLShorteningController.class);
+    private final URLShorteningService service;
+    private final URLMapper mapper;
 
-    private URLShorteningService service;
-
-    @Autowired
-    public URLShorteningController(URLShorteningService service) {
+    public URLShorteningController(URLShorteningService service, URLMapper mapper) {
         this.service = service;
-    }
-
-    @GetMapping("{id}")
-    public ResponseEntity<URL> findById(@PathVariable int id) {
-        return ResponseEntity.of(service.findById(id));
+        this.mapper = mapper;
     }
 
     @PostMapping
-    public ResponseEntity<URL> insertProduct(@RequestBody URL url) {
-        //URL p = service.saveURL(url);
-        //p = new URL()
-        //LocalDateTime time = LocalDateTime.now();
-        //URL p = new URL(1,"https://example.com", time, "abc123");
+    public ResponseEntity<URLResponseDto> createShortUrl(@RequestBody @Valid URLRequestDto requestDto) {
+        logger.info("Request received to shorten URL: {}", requestDto.getUrl());
 
-        log.info("Saving url: " + url.toString());
-        URL p = service.saveURL(url);
+        URL urlEntity = mapper.toEntity(requestDto);
+        URL savedUrl = service.saveURL(urlEntity);
 
+        String fullShortUrl = "www.shr.co/" + savedUrl.getShortUrl();
         URI location = ServletUriComponentsBuilder.fromCurrentRequestUri()
-                .path("/{id}")
-                .buildAndExpand(p.getId())
+                .path("/{shortUrl}")
+                .buildAndExpand(savedUrl.getShortUrl())
                 .toUri();
 
-        return ResponseEntity.created(location).body(p);
+        URLResponseDto responseDto = mapper.toResponseDto(savedUrl);
+        responseDto.setShortUrl(fullShortUrl);
+
+        return ResponseEntity.created(location).body(responseDto);
     }
 
-    @GetMapping("/all")
-    public List<URL> findAll() {
-        return service.getAllUrls();
+
+    @GetMapping("/{shortUrl}")
+    public ResponseEntity<Void> redirectToUrl(@PathVariable String shortUrl) {
+        Optional<URL> url = service.findByShortUrl(shortUrl);
+        if (url.isPresent()) {
+            return ResponseEntity.status(301)
+                    .location(URI.create("http://" + url.get().getUrl()))
+                    .build();
+        } else {
+            logger.warn("URL not found for short URL: {}", shortUrl);
+            throw new URLNotFoundException(shortUrl);
+        }
     }
 }
